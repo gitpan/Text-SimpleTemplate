@@ -1,0 +1,6 @@
+Makefile.PL
+README.TXT
+MANIFEST
+SimpleTemplate.pm
+bin/benchmark.pl
+t/all.t
