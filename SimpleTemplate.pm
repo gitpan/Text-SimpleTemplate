@@ -19,8 +19,9 @@ package Text::SimpleTemplate;
 =head1 DESCRIPTION
 
 This is yet another library for template-based data generation.
-It was first written to support dynamic generation of HTML pages,
-but should be able to handle any kinds of dynamic text generation.
+It was first written for dynamic HTML generation, but should be
+able to handle any kinds of dynamic text generation.
+
 Major goal of this library is to separate code and data, so
 non-programmer can control final result (like HTML output) as
 desired without tweaking the source.
@@ -32,8 +33,7 @@ result.
 
 For people who know Text::Template (which offers similar functionality)
 already, you can consider this library almost same but with more strict
-syntax for exporting and evaluating expression. This library seems to
-run nearly twice as faster, also.
+interface. Also, this library seems to run nearly twice as faster.
 
 =head1 TEMPLATE SYNTAX AND USAGE
 
@@ -66,8 +66,8 @@ it if you want to.
 
 =head1 COMPATIBILITY
 
-I first designed this module to require explicit exportation of data
-to template namespace. But I have also added support for Text::Template
+In addition to its native interface for exporting data to
+template namespace, this module also supports Text::Template
 compatible style of exporting.
 
 Just do it as you had done with Text::Template:
@@ -87,24 +87,35 @@ Following methods are currently available.
 
 =cut
 
-use strict;
-#use diagnostics;
-
 use Carp;
 
+use strict;
 use vars qw($DEBUG $VERSION);
 
 $DEBUG   = 0;
-$VERSION = '0.30';
+$VERSION = '0.32';
 
 =item $tmpl = new Text::SimpleTemplate;
 
 Constructor. This will create (and return) object reference to
 Text::SimpleTemplate object.
 
+If new object was cloned from existing Text::SimpleTemplate
+object, every data except for template buffer will be inherited
+by new child instance. This is useful for chained template processing.
+
 =cut
 sub new {
-    bless { hash => {} }, shift;
+    my $name = shift;
+    my $self = bless { hash => {} }, ref($name) || $name;
+
+    ## inherit parent configuration
+    if (ref($name)) {
+        while (my($k, $v) = each %{$name}) {
+            $self->{$k} = $v unless $k eq 'buff';
+        }
+    }
+    $self;
 }
 
 =item $tmpl->setq($name => $data, $name => $data, ...);
@@ -128,11 +139,16 @@ sub setq {
 Loads template file $file for later evaluation. $file can
 either be a filename or a reference to filehandle.
 
-As a option, this method accepts LR_CHAR option, which can be
-used to specify delimiter to use on parsing. It takes a reference
-to array of delimiter pair, just like below:
+As a option, this method accepts DELIM option, which specifies
+delimiter to use on parsing. It takes a reference to array of
+delimiter pair, just like below:
 
-    $tmpl->load($file, LR_CHAR => [qw({ })]);
+    $tmpl->load($file, DELIM => [qw(<? ?>)]);
+
+There once was LR_CHAR option which provided almost same feature,
+but it is now obsolete (though still supported). Main difference
+is you now have no need to "quotemeta" delimiter, which was a cause
+of trouble when meta character was in delimiter string.
 
 Returns object reference to itself.
 
@@ -176,8 +192,13 @@ sub pack {
 
     %opts = @_;
 
-    $self->{L_CH} = $opts{LR_CHAR}->[0] || '<%';
-    $self->{R_CH} = $opts{LR_CHAR}->[1] || '%>';
+    $self->{L_CH}   = $opts{LR_CHAR}->[0]          if $opts{LR_CHAR};
+    $self->{L_CH}   = quotemeta($opts{DELIM}->[0]) if $opts{DELIM};
+    $self->{L_CH} ||= '<%';
+
+    $self->{R_CH}   = $opts{LR_CHAR}->[1]          if $opts{LR_CHAR};
+    $self->{R_CH}   = quotemeta($opts{DELIM}->[1]) if $opts{DELIM};
+    $self->{R_CH} ||= '%>';
 
     $self;
 }
