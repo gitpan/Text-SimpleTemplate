@@ -1,6 +1,6 @@
 # -*- mode: perl -*-
 #
-# $Id: SimpleTemplate.pm,v 1.5 1999/10/21 15:51:09 tai Exp $
+# $Id: SimpleTemplate.pm,v 1.7 1999/10/24 13:33:44 tai Exp $
 #
 
 package Text::SimpleTemplate;
@@ -33,7 +33,7 @@ result.
 For people who know Text::Template (which offers similar functionality)
 already, you can consider this library almost same but with more strict
 syntax for exporting and evaluating expression. This library seems to
-run 20-30% faster, also.
+run nearly twice as faster, also.
 
 =head1 TEMPLATE SYNTAX AND USAGE
 
@@ -66,9 +66,9 @@ it if you want to.
 
 =head1 COMPATIBILITY
 
-I first designed this module to require exporting of data to be
-done explicitly. But I changed my mind and have also added
-support for Text::Template compatible style of exporting.
+I first designed this module to require explicit exportation of data
+to template namespace. But I have also added support for Text::Template
+compatible style of exporting.
 
 Just do it as you had done with Text::Template:
 
@@ -78,8 +78,6 @@ Just do it as you had done with Text::Template:
     $tmpl = new Text::SimpleTemplate;
     ...
     $tmpl->fill(PACKAGE => 'FOO');
-
-I personally don't use this style, you might find it useful.
 
 =head1 METHODS
 
@@ -97,7 +95,7 @@ use Carp;
 use vars qw($DEBUG $VERSION);
 
 $DEBUG   = 0;
-$VERSION = '0.06';
+$VERSION = '0.20';
 
 =item $tmpl = new Text::SimpleTemplate;
 
@@ -106,7 +104,7 @@ Text::SimpleTemplate object.
 
 =cut
 sub new {
-    bless { list => [], hash => {} }, shift;
+    bless { hash => {} }, shift;
 }
 
 =item $tmpl->setq($name => $data, $name => $data, ...);
@@ -166,16 +164,21 @@ Except for this difference, works just like $tmpl->load.
 =cut
 sub pack {
     my $self = shift;
-    my $data = shift;
-    my %opts = @_;
+    my %opts;
 
-    my $L = $self->{L} = $opts{LR_CHAR}->[0] || '<%';
-    my $R = $self->{R} = $opts{LR_CHAR}->[1] || '%>';
+    ##
+    ## I used to build internal document structure here, but it
+    ## seems it's much faster to just make a copy and let Perl
+    ## do the parsing on every evaluation stage...
+    ##
 
-    $self->init;
-    $data =~ s|(.*?)$L(.*?)$R|$self->push($1, $2)|seg;
-#    $data =~ s|^((.*?)[^\\])?$L((.*?)[^\\])?$R|$self->push($1, $3)|seg;
-    $self->push($data);
+    $self->{buff} = shift;
+
+    %opts = @_;
+
+    $self->{L_CH} = $opts{LR_CHAR}->[0] || '<%';
+    $self->{R_CH} = $opts{LR_CHAR}->[1] || '%>';
+
     $self;
 }
 
@@ -196,13 +199,13 @@ itself. So either of
     $tmpl->fill(PACKAGE => new Some::Module);
     $tmpl->fill(PACKAGE => 'Some::Package');
 
-works. Note: Safe module is handled differently, so
-reval method will be used instead of plain eval.
+works. If Safe module was passed, its reval method
+will be used instead of built-in eval.
 
 OHANDLE option is for output selection. By default, this
 method returns the result of evaluation, but with OHANDLE
 option set, you can instead make it print to given handle.
-Either of
+Either style of
 
     $tmpl->fill(OHANDLE => \*STDOUT);
     $tmpl->fill(OHANDLE => new FileHandle(...));
@@ -215,27 +218,20 @@ sub fill {
     my %opts = @_;
     my $from = $opts{PACKAGE} || caller;
     my $hand = $opts{OHANDLE};
+    my $buff;
     my $name;
     my $eval;
-    my $text;
 
     no strict;
 
     ## dynamically create evaluation engine
     if (UNIVERSAL::isa($from, 'Safe')) {
         $name = $from->root;
-        $eval = sub {
-            my $r = $from->reval($_[0]); $@ ? $@ : $r;
-        };
+        $eval = sub { $from->reval($_[0]) || \$@ }
     }
     else {
         $name = ref($from) || $from;
-        $eval = eval qq{
-            package $name;
-            sub {
-                my \$r = eval \$_[0]; \$@ ? \$@ : \$r;
-            };
-        };
+        $eval = eval qq{ package $name; sub { eval(\$_[0]) || \$@ }; };
     }
 
     ## export stored data to target namespace
@@ -246,40 +242,21 @@ sub fill {
         ${"${name}::${key}"} = $val;
     }
 
-    ## process each template element
-    foreach (@{$self->{list}}) {
-        print STDERR "Processing: $_\n" if $DEBUG;
-        unless ($hand) {
-            $text .= $_->{eval} ? $eval->($_->{data}) : $_->{data}; next;
-        }
-        print $hand $_->{eval} ? $eval->($_->{data}) : $_->{data};
-    }
-    $text;
-}
+    my $L = $self->{L_CH};
+    my $R = $self->{R_CH};
 
-sub init {
-    shift->{list} = [];
-}
-
-sub push {
-    my $self = shift;
-    my $text = shift;
-    my $expr = shift;
-
-#    for ($text, $expr) {
-#        s!\\($self->{R}|$self->{L})!$1!go if $_;
-#    }
-
-    push(@{$self->{list}}, { eval => 0, data => $text }) if $text;
-    push(@{$self->{list}}, { eval => 1, data => $expr }) if $expr;
-    '';
+    ## parse and evaluate
+    $buff = $self->{buff};
+    $buff =~ s|$L(.*?)$R|$eval->($1)|seg;
+#    $buff =~ s|([^\\])$L(.*?)$R|$1 . $eval->($2)|seg;
+    $hand ? print($hand $buff) : $buff;
 }
 
 =back
 
 =head1 SEE ALSO
 
-L<Safe>, L<Template> and L<Text::Template>
+L<Safe> and L<Text::Template>
 
 =head1 COPYRIGHT
 
