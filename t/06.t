@@ -6,9 +6,15 @@
 use Test;
 use Text::SimpleTemplate;
 
-BEGIN { plan tests => 1 }
+BEGIN { plan tests => 2 }
 
 eval {
+    package SandBox;
+    use Safe;
+    @ISA = qw(Safe);
+
+    package main;
+
     use Safe;
 
     $tmpl = new Text::SimpleTemplate;
@@ -16,7 +22,11 @@ eval {
 
     ok("hello, world",
        $tmpl->pack(q{<% $TEXT %>})->fill(PACKAGE => new Safe));
+    ok("hello, world",
+       $tmpl->pack(q{<% $TEXT %>})->fill(PACKAGE => new SandBox));
 };
-ok(1) if $@;
+
+# report all as skipped if there's no Safe.pm
+if ($@) { skip(1, 1) for (1..2); }
 
 exit(0);

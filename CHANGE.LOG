@@ -6,6 +6,9 @@ plan
 - reduce buffer copying overhead
 - review inheritance design of "new" constructor.
 
+0.36
+- Updated to prevent wierd segmentation fault in recent Perl (5.6.X).
+
 0.35
 - general code review
 - complete documentation update

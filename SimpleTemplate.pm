@@ -125,7 +125,7 @@ use strict;
 use vars qw($DEBUG $VERSION);
 
 $DEBUG   = 0;
-$VERSION = '0.35';
+$VERSION = '0.36';
 
 =item $tmpl = Text::SimpleTemplate->new;
 
@@ -247,38 +247,43 @@ sub fill {
     my $hand = $opts{OHANDLE};
     my $buff;
     my $name;
-    my $eval;
 
     no strict;
 
-    ## dynamically create evaluation engine
+    ## determine package namespace to do the evaluation
     if (UNIVERSAL::isa($from, 'Safe')) {
         $name = $from->root;
-        $eval = sub { my $v = $from->reval($_[0]); $@ ? $@ : $v; }
     }
     else {
         $name = ref($from) || $from;
-        $eval = eval qq{
-            package $name; sub { my \$v = eval(\$_[0]); \$@ ? \$@ : \$v; };
-        };
-    }
-
-    ## export stored data to target namespace
-    while (my($key, $val) = each %{$self->{hash}}) {
-        if ($DEBUG) {
-            print STDERR "Exporting to \$${name}::${key}: $val\n";
-        }
-        $ {"${name}::${key}"} = $val;
     }
 
     my $L = $self->{DELIM}->[0];
     my $R = $self->{DELIM}->[1];
 
-    ## parse and evaluate
+    ## copy to save original
     $buff = $self->{buff};
-    $buff =~ s|$L(.*?)$R|$eval->($1)|seg;
 
-    $hand ? print($hand $buff) : $buff;
+    ## export, parse, and evaluate
+    eval qq{package $name;} . q{
+	## export stored data to target namespace
+	while (my($key, $val) = each %{$self->{hash}}) {
+	    #print STDERR "Exporting to \$${name}::${key}: $val\n";
+	    $ {"${key}"} = $val;
+	}
+
+	#print STDERR "\nBEFORE: $buff\n";
+	if (UNIVERSAL::isa($from, 'Safe')) {
+	    $buff =~ s|$L(.*?)$R|$from->reval($1)|ges;
+	}
+	else {
+	    $buff =~ s|$L(.*?)$R|eval($1)|ges;
+	}
+	#print STDERR "\nAFTER: $buff\n";
+    };
+    $buff = $@ if $@;
+
+    print $hand $buff if $hand; $buff;
 }
 
 =back
