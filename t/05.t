@@ -8,8 +8,10 @@ use Text::SimpleTemplate;
 
 BEGIN { plan tests => 1 }
 
-$tmpl = new Text::SimpleTemplate;
+open(FILE, $0);
 
-ok($tmpl->load("/etc/group")->fill, `cat /etc/group`);
+$tmpl = new Text::SimpleTemplate;
+$buff = join("", <FILE>);
+ok($tmpl->load($0)->fill, $buff);
 
 exit(0);

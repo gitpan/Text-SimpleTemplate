@@ -7,77 +7,108 @@ package Text::SimpleTemplate;
 
 =head1 NAME
 
- Text::SimpleTemplate - Yet another library for template processing.
+ Text::SimpleTemplate - Yet another module for template processing
 
 =head1 SYNOPSIS
 
  use Text::SimpleTemplate;
 
- $tmpl = new Text::SimpleTemplate;
- ...
+ $tmpl = new Text::SimpleTemplate;    # create processor object
+ $tmpl->setq(TEXT => "hello, world"); # export data to template
+ $tmpl->load($file);                  # loads template from named file
+ $tmpl->pack(q{TEXT: <% $TEXT; %>});  # loads template from in-memory data
+
+ print $tmpl->fill;                   # prints "TEXT: hello, world"
 
 =head1 DESCRIPTION
 
-This is yet another library for template-based data generation.
-It was first written for dynamic HTML generation, but should be
-able to handle any kinds of dynamic text generation.
+This is yet another library for template-based text generation.
 
-Major goal of this library is to separate code and data, so
-non-programmer can control final result (like HTML output) as
-desired without tweaking the source.
+Template-based text generation is a way to separate program code
+and data, so non-programmer can control final result (like HTML) as
+desired without tweaking the program code itself. By doing so, jobs
+like website maintenance is much easier because you can leave program
+code unchanged even if page redesign was needed.
 
-The idea is simple. Whenever the library finds text surrounded by
-'<%' and '%>' (or any pair of strings you specify), it will evaluate
-the part as a Perl expression, and will replace it by the evaluated
-result.
+The idea is simple. Whenever a block of text surrounded by '<%' and
+'%>' (or any pair of delimiters you specify) is found, it will be
+taken as Perl expression, and will be replaced by its evaluated result.
 
-For people who know Text::Template (which offers similar functionality)
-already, you can consider this library almost same but with more strict
-interface. Also, this library seems to run nearly twice as faster.
+Major goal of this library is simplicity and speed. While there're
+many modules for template processing, this module has near raw
+Perl-code (i.e., "s|xxx|xxx|ge") speed, while providing simple-to-use
+objective interface.
+
+=head1 INSTALLATION / REQUIREMENTS
+
+This module requires Carp.pm and FileHandle.pm.
+Since these are standard modules, all you need is perl itself.
+
+For installation, standard procedure of
+
+    perl Makefile.PL
+    make
+    make test
+    make install
+
+should work just fine.
 
 =head1 TEMPLATE SYNTAX AND USAGE
 
 Suppose you have a following template named "sample.tmpl":
 
-    Hello, <% $to %>!
-    Welcome, you are user with ID #<% $id->{$to} %>.
+    === Module Information ===
+    Name: <% $INFO->{Name}; %>
+    Description: <% $INFO->{Description}; %>
+    Author: <% $INFO->{Author}; %> <<% $INFO->{Email}; %>>
 
-With the follwing code...
+With the following code...
 
     use Safe;
     use Text::SimpleTemplate;
 
     $tmpl = new Text::SimpleTemplate;
-    $tmpl->setq(to => 'tai', id => { tai => 10 });
+    $tmpl->setq(INFO => {
+        Name        => "Text::SimpleTemplate",
+        Description => "Yet another module for template processing",
+        Author      => "Taisuke Yamada",
+        Email       => "tai\@imasy.or.jp",
+    });
     $tmpl->load("sample.tmpl");
-    $tmpl->fill(OHANDLE => \*STDOUT, PACKAGE => new Safe);
+
+    print $tmpl->fill(PACKAGE => new Safe);
 
 ...you will get following result:
 
-    Hello, tai!
-    Welcome, you are user with ID #10.
+    === Module Information ===
+    Name: Text::SimpleTemplate
+    Description: Yet another module for template processing
+    Author: Taisuke Yamada <tai@imasy.or.jp>
 
-As you might have noticed, _any_ scalar variable can be exported,
-even hash reference or code reference.
+As you might have noticed, any scalar data can be exported
+to template namespace, even hash reference or code reference.
 
-By the way, although the above example used Safe module, this
-is not a requirement. I just wanted to show that you can use
-it if you want to.
+By the way, although I used "Safe" module in example above,
+this is not a requirement. However, if you want to control
+power of the template editor over program logic, its use is
+strongly recommended (see L<Safe> for more).
 
-=head1 COMPATIBILITY
+=head1 DIRECT ACCESS TO TEMPLATE NAMESPACE
 
-In addition to its native interface for exporting data to
-template namespace, this module also supports Text::Template
-compatible style of exporting.
-
-Just do it as you had done with Text::Template:
+In addition to its native interface, you can also access
+directly to template namespace.
 
     $FOO::text = 'hello, world';
     @FOO::list = qw(foo bar baz);
 
     $tmpl = new Text::SimpleTemplate;
-    ...
-    $tmpl->fill(PACKAGE => 'FOO');
+    $tmpl->pack(q{TEXT: <% $text; %>, LIST: <% "@list"; %>});
+
+    print $tmpl->fill(PACKAGE => 'FOO');
+
+While I don't recommend this style, this might be useful if you
+want to export list, hash, or subroutine directly without using
+reference.
 
 =head1 METHODS
 
@@ -88,41 +119,43 @@ Following methods are currently available.
 =cut
 
 use Carp;
+use FileHandle;
 
 use strict;
 use vars qw($DEBUG $VERSION);
 
 $DEBUG   = 0;
-$VERSION = '0.32';
+$VERSION = '0.35';
 
-=item $tmpl = new Text::SimpleTemplate;
+=item $tmpl = Text::SimpleTemplate->new;
 
-Constructor. This will create (and return) object reference to
-Text::SimpleTemplate object.
+Constructor. Returns newly created object.
 
-If new object was cloned from existing Text::SimpleTemplate
-object, every data except for template buffer will be inherited
-by new child instance. This is useful for chained template processing.
+If this method was called through existing object, cloned object
+will be returned. This cloned instance inherits all properties
+except for internal buffer which holds template data. Cloning is
+useful for chained template processing.
 
 =cut
 sub new {
     my $name = shift;
     my $self = bless { hash => {} }, ref($name) || $name;
 
+    return $self unless ref($name);
+
     ## inherit parent configuration
-    if (ref($name)) {
-        while (my($k, $v) = each %{$name}) {
-            $self->{$k} = $v unless $k eq 'buff';
-        }
+    while (my($k, $v) = each %{$name}) {
+        $self->{$k} = $v unless $k eq 'buff';
     }
-    $self;
+    return $self;
 }
 
 =item $tmpl->setq($name => $data, $name => $data, ...);
 
-Exports scalar data $data with name $name to template namespace (which
-is dynamically set on later evaluation stage). You can repeat the pair
-to export multiple variable pairs in one operation.
+Exports scalar data ($data) to template namespace,
+with $name as a scalar variable name to be used in template.
+
+You can repeat the pair to export multiple sets in one operation.
 
 =cut
 sub setq {
@@ -136,19 +169,14 @@ sub setq {
 
 =item $tmpl->load($file, %opts);
 
-Loads template file $file for later evaluation. $file can
-either be a filename or a reference to filehandle.
+Loads template file ($file) for later evaluation.
+File can be specified in either form of pathname or fileglob.
 
-As a option, this method accepts DELIM option, which specifies
-delimiter to use on parsing. It takes a reference to array of
-delimiter pair, just like below:
+This method accepts DELIM option, used to specify delimiter
+for parsing template. It is speficied by passing reference
+to array containing delimiter pair, just like below:
 
     $tmpl->load($file, DELIM => [qw(<? ?>)]);
-
-There once was LR_CHAR option which provided almost same feature,
-but it is now obsolete (though still supported). Main difference
-is you now have no need to "quotemeta" delimiter, which was a cause
-of trouble when meta character was in delimiter string.
 
 Returns object reference to itself.
 
@@ -156,72 +184,50 @@ Returns object reference to itself.
 sub load {
     my $self = shift;
     my $file = shift;
-    my %opts = @_;
-    my $buff;
 
-    if (ref($file)) {
-        $buff = join("", <$file>);
-    }
-    else {
-        local(*FILE);
-
-        open(FILE, $file) || croak($!);
-        $buff = join("", <FILE>);
-        close(FILE);
-    }
-    $self->pack($buff, %opts);
+    $file = new FileHandle($file) || croak($!) unless ref($file);
+    $self->pack(join("", <$file>), @_);
 }
 
 =item $tmpl->pack($data, %opts);
 
-Instead of file, loads in-memory data $data as a template.
+Loads in-memory data ($data) for later evaluation.
 Except for this difference, works just like $tmpl->load.
 
 =cut
 sub pack {
-    my $self = shift;
-    my %opts;
+    my $self = shift; $self->{buff} = shift;
+    my %opts = @_;
 
     ##
-    ## I used to build internal document structure here, but it
-    ## seems it's much faster to just make a copy and let Perl
-    ## do the parsing on every evaluation stage...
+    ## I used to build internal document structure here, but
+    ## it seems it's much faster to just make a copy and let
+    ## Perl do the parsing on every evaluation stage. Hmm...
     ##
 
-    $self->{buff} = shift;
-
-    %opts = @_;
-
-    $self->{L_CH}   = $opts{LR_CHAR}->[0]          if $opts{LR_CHAR};
-    $self->{L_CH}   = quotemeta($opts{DELIM}->[0]) if $opts{DELIM};
-    $self->{L_CH} ||= '<%';
-
-    $self->{R_CH}   = $opts{LR_CHAR}->[1]          if $opts{LR_CHAR};
-    $self->{R_CH}   = quotemeta($opts{DELIM}->[1]) if $opts{DELIM};
-    $self->{R_CH} ||= '%>';
-
+    $self->{DELIM}   = [@{$opts{LR_CHAR}}]                 if $opts{LR_CHAR};
+    $self->{DELIM}   = [map { quotemeta } @{$opts{DELIM}}] if $opts{DELIM};
+    $self->{DELIM} ||= [qw(<% %>)];
     $self;
 }
 
 =item $text = $tmpl->fill(%opts);
 
-Returns evaluated result of template. Note template must
-be preloaded by either $tmpl->pack or $tmpl->load
-method beforehand.
+Returns evaluated result of template, which was
+preloaded by either $tmpl->pack or $tmpl->load method.
 
 This method accepts two options: PACKAGE and OHANDLE.
 
-PACKAGE option will let you specify the namespace
-where template evaluation takes place. You can pass
-either the name of the namespace, or the package object
-itself. So either of
+PACKAGE option specifies the namespace where template
+evaluation takes place. You can either pass the name of
+the package, or the package object itself. So either of
 
     $tmpl->fill(PACKAGE => new Safe);
     $tmpl->fill(PACKAGE => new Some::Module);
     $tmpl->fill(PACKAGE => 'Some::Package');
 
-works. If Safe module was passed, its reval method
-will be used instead of built-in eval.
+works. In case Safe module (or its subclass) was passed,
+its "reval" method will be used instead of built-in eval.
 
 OHANDLE option is for output selection. By default, this
 method returns the result of evaluation, but with OHANDLE
@@ -260,33 +266,30 @@ sub fill {
     ## export stored data to target namespace
     while (my($key, $val) = each %{$self->{hash}}) {
         if ($DEBUG) {
-            print STDERR "Exporting to ${name}::${key}: $val\n";
+            print STDERR "Exporting to \$${name}::${key}: $val\n";
         }
-        ${"${name}::${key}"} = $val;
+        $ {"${name}::${key}"} = $val;
     }
 
-    my $L = $self->{L_CH};
-    my $R = $self->{R_CH};
+    my $L = $self->{DELIM}->[0];
+    my $R = $self->{DELIM}->[1];
 
     ## parse and evaluate
     $buff = $self->{buff};
     $buff =~ s|$L(.*?)$R|$eval->($1)|seg;
-#    $buff =~ s{^(.*?[^\\])?$L(.*?[^\\])$R}
-#              {(defined($1) ? $1 : "") . $eval->($2)}sgex;
-#    $buff =~ s/\\($L|$R)/$1/g;
+
     $hand ? print($hand $buff) : $buff;
 }
 
 =back
 
-=head1 SEE ALSO
+=head1 NOTES / BUGS
 
-L<Safe> and L<Text::Template>
+Nested template delimiter will cause this module to fail.
 
-=head1 BUGS / COMMENTS
+=head1 CONTACT ADDRESS
 
-Please send any bug reports/comments/suggestions to
-Taisuke Yamada <tai@imasy.or.jp>.
+Please send any bug reports/comments to <tai@imasy.or.jp>.
 
 =head1 AUTHORS / CONTRIBUTORS
 
@@ -295,7 +298,7 @@ Taisuke Yamada <tai@imasy.or.jp>.
 
 =head1 COPYRIGHT
 
-All rights reserved.
+Copyright 1999-2001. All rights reserved.
 
 This library is free software; you can redistribute it
 and/or modify it under the same terms as Perl itself.

@@ -1,6 +1,7 @@
 MANIFEST
-Makefile.PL
+CHANGE.LOG
 README.TXT
+Makefile.PL
 SimpleTemplate.pm
 bin/benchmark.pl
 t/01.t
