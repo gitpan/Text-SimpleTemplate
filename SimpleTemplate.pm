@@ -95,7 +95,7 @@ use Carp;
 use vars qw($DEBUG $VERSION);
 
 $DEBUG   = 0;
-$VERSION = '0.20';
+$VERSION = '0.30';
 
 =item $tmpl = new Text::SimpleTemplate;
 
@@ -227,11 +227,13 @@ sub fill {
     ## dynamically create evaluation engine
     if (UNIVERSAL::isa($from, 'Safe')) {
         $name = $from->root;
-        $eval = sub { $from->reval($_[0]) || \$@ }
+        $eval = sub { my $v = $from->reval($_[0]); $@ ? $@ : $v; }
     }
     else {
         $name = ref($from) || $from;
-        $eval = eval qq{ package $name; sub { eval(\$_[0]) || \$@ }; };
+        $eval = eval qq{
+            package $name; sub { my \$v = eval(\$_[0]); \$@ ? \$@ : \$v; };
+        };
     }
 
     ## export stored data to target namespace
@@ -248,7 +250,9 @@ sub fill {
     ## parse and evaluate
     $buff = $self->{buff};
     $buff =~ s|$L(.*?)$R|$eval->($1)|seg;
-#    $buff =~ s|([^\\])$L(.*?)$R|$1 . $eval->($2)|seg;
+#    $buff =~ s{^(.*?[^\\])?$L(.*?[^\\])$R}
+#              {(defined($1) ? $1 : "") . $eval->($2)}sgex;
+#    $buff =~ s/\\($L|$R)/$1/g;
     $hand ? print($hand $buff) : $buff;
 }
 
@@ -258,9 +262,18 @@ sub fill {
 
 L<Safe> and L<Text::Template>
 
+=head1 BUGS / COMMENTS
+
+Please send any bug reports/comments/suggestions to
+Taisuke Yamada <tai@imasy.or.jp>.
+
+=head1 AUTHORS / CONTRIBUTORS
+
+ - Taisuke Yamada <tai@imasy.or.jp>
+ - Lin Tianshan <lts@www.qz.fj.cn>
+
 =head1 COPYRIGHT
 
-Copyright 1998-1999 T. Yamada <tai@imasy.or.jp>.
 All rights reserved.
 
 This library is free software; you can redistribute it
